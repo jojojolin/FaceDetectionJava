@@ -13,8 +13,8 @@ import org.opencv.core.MatOfFloat;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.MatOfRect;
+import org.opencv.core.Point;
 import org.opencv.core.Rect;
-import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
@@ -40,7 +40,7 @@ public class Controller
 	@FXML
 	private ImageView currentFrame;
 	
-	// checkboxes for enabling/disabling classifier
+	// check-boxes for enabling/disabling classifier
 	@FXML
 	private CheckBox haar;
 	@FXML
@@ -52,8 +52,6 @@ public class Controller
 	private VideoCapture capture;
 	// a flag to change the button behavior
 	private boolean cameraActive;
-	// the id of the camera to be used
-	private static int cameraId = 0;
 	
 	// face cascade classifier
 	private CascadeClassifier faceCascade;
@@ -62,6 +60,7 @@ public class Controller
 	private Mat moustache;
 	private Mat prevFrame;
 	private MatOfPoint2f prevCorners2f;
+	private Moustache mos;
 	
 	
 	
@@ -72,13 +71,16 @@ public class Controller
 	protected void init(){
 		
 		this.capture=new VideoCapture();
+		//Load cascades
 		this.faceCascade= new CascadeClassifier("data/haarcascades/haarcascade_frontalface_alt2.xml");
 		this.noseCascade=new CascadeClassifier("data/otherCascades/haarcascade_mcs_nose.xml");
-		this.absoluteFaceSize=0;
-		//load moustache with all 4 channels
-		this.moustache=Imgcodecs.imread("data/whitemoustache.png",-1);
 		
-		// set a fixed width for the frame
+		this.absoluteFaceSize=0;
+		//Load with all 4 channels
+		this.moustache=Imgcodecs.imread("data/whitemoustache.png",-1);
+		this.mos = new Moustache(moustache);
+		
+		// Set a fixed width for the frame
 		currentFrame.setFitWidth(600);
 		currentFrame.setPreserveRatio(true);
 	}
@@ -93,23 +95,22 @@ public class Controller
 	@FXML
 	protected void startCamera(ActionEvent event)
 	{
+		System.out.println("start Button is pressed!Now triggers startCamera in the controller");
 		if (!this.cameraActive)
 		{	
+			System.out.println("Ready to activate the camera:"+this.capture.isOpened());
 			// start the video capture
-			this.capture.open(cameraId);
-			
-			// is the video stream available?
+			this.capture.open(0);
+			System.out.println("Opened the capture.");
 			if (this.capture.isOpened())
 			{
 				this.cameraActive = true;
 				
-				// grab a frame every 33 ms (30 frames/sec)
 				Runnable frameGrabber = new Runnable() {
 					
 					@Override
 					public void run()
 					{
-						// effectively grab and process a single frame
 						Mat frame = grabFrame();
 						// convert and show the frame
 						Image imageToShow = Utils.mat2Image(frame);
@@ -118,24 +119,25 @@ public class Controller
 				};
 				
 				this.timer = Executors.newSingleThreadScheduledExecutor();
+				// Grab a frame every 33 ms (30 frames/sec)
 				this.timer.scheduleAtFixedRate(frameGrabber, 0, 33, TimeUnit.MILLISECONDS);
 				
-				// update the button content
+				// Update the button content
 				this.button.setText("Stop Camera");
 			}
 			else
 			{
-				// log the error
+				// Log the error
 				System.err.println("Impossible to open the camera connection...");
 			}
 		}
 		else
 		{
-			// the camera is not active at this point
+			// Camera is not active at this point
 			this.cameraActive = false;
-			// update again the button content
+			// Update again the button content
 			this.button.setText("Start Camera");
-			// stop the timer
+			// Stop the timer
 			this.stopAcquisition();
 		}
 	}
@@ -187,12 +189,12 @@ public class Controller
 		MatOfRect faces= new MatOfRect();
 		Mat grayFrame= new Mat();
 		
-		//convert the frame in gray  scale
+		//Convert to gray scale to decrease noise level
 		Imgproc.cvtColor(frame, grayFrame, Imgproc.COLOR_BGR2GRAY);
-		//equalize the frame histogram to improve the result
-		Imgproc.equalizeHist(grayFrame, grayFrame);
+		//Equalize the frame histogram to improve the result
+		Imgproc.equalizeHist(grayFrame, grayFrame);//This is important! without this the moustache keeps resizing
 		
-		//compute minimum face size (20% of the frame height, in our case)
+		//Compute minimum face size (20% of the frame height, in our case)
 		if(this.absoluteFaceSize==0)
 		{
 			int height = grayFrame.rows();
@@ -202,106 +204,143 @@ public class Controller
 			}
 		}
 		
-		//detect faces
-		this.faceCascade.detectMultiScale(grayFrame,faces,1.1,2,0|Objdetect.CASCADE_SCALE_IMAGE, 
-				new Size(this.absoluteFaceSize,this.absoluteFaceSize), new Size());
-		
-		for (Rect rect: faces.toArray())
-		{
-			//Imgproc.rectangle(frame, rect.tl(), rect.br(), new Scalar(0,255,0), 3);
-			Mat roi_gray=grayFrame.submat(rect);
-			Mat roi_color=frame.submat(rect);
-			/*
-			if(prevFrame==null)
+		/*** Major change:
+		 * 		Recognition (Face + nose) get executed in the very first initialization run/frame only.
+		 * 		Enough information is stored to enable tracking in the rest of the frames
+		 * 		This is done to reduce time complexity and achieve real-time streaming
+		 * ***/
+		if(prevFrame == null){
+			//Detect faces
+			this.faceCascade.detectMultiScale(grayFrame,faces,1.1,2,0|Objdetect.CASCADE_SCALE_IMAGE, 
+					new Size(this.absoluteFaceSize,this.absoluteFaceSize), new Size());
+			for (Rect rect: faces.toArray())
 			{
-				prevFrame=roi_gray;
-				MatOfPoint prevCorners=new MatOfPoint();
-				Imgproc.goodFeaturesToTrack(prevFrame,prevCorners,200,0.01, 10);
-				prevCorners2f=new MatOfPoint2f(prevCorners.toArray());
-				prevFrame=grayFrame;
-			}
-			else
-			{
-				Mat nextFrame=grayFrame;
-				if(nextFrame.size()!=prevFrame.size())
-					Imgproc.resize(prevFrame, prevFrame, nextFrame.size());
-				MatOfPoint nextCorners=new MatOfPoint();
-				Imgproc.goodFeaturesToTrack(nextFrame,nextCorners,200,0.01,10);
-				MatOfPoint2f nextCorners2f=new MatOfPoint2f(nextCorners.toArray());
-				MatOfFloat err=new MatOfFloat();
-				MatOfByte status=new MatOfByte();
-				Video.calcOpticalFlowPyrLK(prevFrame, nextFrame, prevCorners2f, nextCorners2f,status, err);
-				for(int i=0; i<status.toArray().length;i++){
-					if(status.toArray()[i]==1)
-						//System.out.println(".");
-						Imgproc.circle(roi_color,prevCorners2f.toArray()[i], 3, new Scalar(0,255,0));
-				}
-				//update
-				prevFrame=nextFrame;
-				prevCorners2f=nextCorners2f;
-			}*/
-			
-			//for storing detected nose later
-			MatOfRect nose= new MatOfRect();
-			
-			//detect noses
-			noseCascade.detectMultiScale(roi_gray,nose);
-			
-			for(Rect noseOne:nose.toArray()){
-				double brX=noseOne.br().x;
-				double brY=noseOne.br().y;
+				int ox = rect.x;
+				int oy = rect.y;
 				
-				double nw=noseOne.width;
-				double mw=nw*3;
-				double mh=mw/moustache.width()*moustache.height();
+				Runnable trackpoints = new Runnable(){
+					@Override
+					public void run()
+					{
+						System.out.println("Running trackpoints~");
+						//Imgproc.rectangle(frame, rect.tl(), rect.br(), new Scalar(0,255,0), 3);
+						Mat roi_gray=grayFrame.submat(rect);
+						//Mat roi_color=frame.submat(rect);
+						prevFrame=roi_gray;
+						MatOfPoint prevCorners=new MatOfPoint();
+						//The more points we track the longer tracking lasts
+						Imgproc.goodFeaturesToTrack(prevFrame,prevCorners,200,0.01, 10);
+						Point[] prevpt = prevCorners.toArray();
+						for(Point p : prevpt){
+							p.x+=ox;
+							p.y+=oy;
+						}
+						prevCorners2f=new MatOfPoint2f(prevpt);
+						prevFrame=grayFrame;
+					}
+				};
 				
-				//centralise moustache
-				double x1=brX-nw-mw/10;
-				double x2=brX+mw/10;
-				double y1=brY-mh/4;
-				double y2=brY+mh/4;
+				Runnable noseDetection = new Runnable(){
+					@Override
+					public void run(){
+						System.out.println("Running noseDetection~");
+						Mat roi_gray=grayFrame.submat(rect);
+						//For storing detected nose later
+						MatOfRect nose= new MatOfRect();
+						//Detect nose
+						noseCascade.detectMultiScale(roi_gray,nose);
+						
+						for(Rect noseOne:nose.toArray()){
+							System.out.println("nose detected!");
+							//Localize sticker
+							mos.initPos(noseOne, ox, oy,roi_gray.width(),roi_gray.height());
+							//Append sticker to frame/ Image processing
+							appendSticker(frame,mos);
+							break;//one nose per face!
+						}
+					}
+				};
+				//Create 2 threads
+				Thread t1 = new Thread(trackpoints);
+				Thread t2 = new Thread(noseDetection);
+				//Fire them!
+				t1.start();
+				t2.start();
+				//Make sure they both terminated properly in this initial run
+				try
+		        { 
+		            t1.join(); 
+		            t2.join(); 
+		        } 
+		        catch(Exception e) 
+		        { 
+		            System.out.println("Interrupted"); 
+		        } 
 				
-				//recalculate size of moustache
-				mw=x2-x1;
-				mh=y2-y1;
-				
-				//check for clipping
-				if (x1<0)
-					x1=0;
-				if(y1<0)
-					y1=0;
-				if(x2>roi_color.width())
-					x2=roi_color.width();
-				if(y2>roi_color.height())
-					y2=roi_color.height(); 
-				
-				Size sz=new Size((int)mw,(int)mh);
-				Mat resizedMoustache=new Mat();
-				
-				//resize moustache
-				Imgproc.resize(moustache, resizedMoustache, sz);
-				
-				//split to 4 channels
-				List<Mat> rgba=new ArrayList<Mat>();
-				Core.split(resizedMoustache, rgba);
-				
-				//get alpha layer and create masks
-				Mat mask=rgba.get(3);
-				Mat mask_inv=new Mat();
-				Core.bitwise_not(mask, mask_inv);
-				rgba.remove(3);
-				Mat rgbMoustache=new Mat();
-				Core.merge(rgba, rgbMoustache);
-				
-				Mat fg=new Mat();
-				Core.bitwise_and(rgbMoustache, rgbMoustache, fg, mask);
-				Mat bg=new Mat();
-				Mat roi=roi_color.submat(new Rect((int)x1,(int)y1,(int)mw,(int)mh));
-				Core.bitwise_and(roi, roi, bg, mask_inv);
-				Core.add(fg, bg, roi);
 				break;
 			}
 		}
+		else{
+			Mat nextFrame=grayFrame;
+			if(nextFrame.size()!=prevFrame.size())
+				Imgproc.resize(prevFrame, prevFrame, nextFrame.size());
+			MatOfPoint2f nextCorners2f=new MatOfPoint2f();
+			MatOfFloat err=new MatOfFloat();
+			MatOfByte status=new MatOfByte();
+			Video.calcOpticalFlowPyrLK(prevFrame, nextFrame, prevCorners2f, nextCorners2f,status, err);
+			
+			//Consider doing a rescan in the future - if the no. of points with status 1 is below perhaps 50
+			int counter = 0;
+			double sum_x = 0;
+			double sum_y = 0;
+			int size = status.toArray().length;
+			Point[] prevpt = prevCorners2f.toArray();
+			Point[] currentpt= nextCorners2f.toArray();
+			for(int i=0; i<size;i++){
+				if(status.toArray()[i]==1){
+					counter++;
+					sum_x+=currentpt[i].x-prevpt[i].x;
+					sum_y+=currentpt[i].y-prevpt[i].y;
+					/**Uncomment the line below to test for tracking**/
+					//Imgproc.circle(frame,prevpt[i], 3, new Scalar(0,255,0));
+				}
+					
+			}
+			sum_x/=size;
+			sum_y/=size;
+			mos.move(sum_x, sum_y);
+			appendSticker(frame,mos);
+			System.out.println("Counter: "+counter+", dist moved x = "+sum_x+", dist moved y = "+sum_y);
+			//Update
+			prevFrame=nextFrame;
+			prevCorners2f=nextCorners2f;
+		}
+	}
+	
+	
+	private void appendSticker(Mat frame, Sticker sticker){ //Parameters are copies of references
+		//Split resized sticker into to 4 channels
+		List<Mat> rgba=new ArrayList<Mat>();
+		System.out.println("Inside appendSticker, check getMat() "+sticker.getMat());
+		Core.split(sticker.getMat(), rgba);
+		
+		//Get alpha - transparency - layer and create masks
+		Mat mask=rgba.get(3);
+		Mat mask_inv=new Mat();
+		Core.bitwise_not(mask, mask_inv);
+		rgba.remove(3);
+		Mat rgbsticker=new Mat();
+		Core.merge(rgba, rgbsticker);
+		
+		Mat fg=new Mat();
+		Core.bitwise_and(rgbsticker, rgbsticker, fg, mask);
+		Mat bg=new Mat();
+		Point topLeftSticker= sticker.getTopLeftPos();
+		System.out.println("Top left sticker is :"+topLeftSticker.x+", "+topLeftSticker.y);
+		Size sz= rgbsticker.size();
+		Mat roi=frame.submat(new Rect((int)topLeftSticker.x,(int)topLeftSticker.y,(int)sz.width,(int)sz.height));
+		Core.bitwise_and(roi, roi, bg, mask_inv);
+		Core.add(fg, bg, roi);
 	}
 
 	
