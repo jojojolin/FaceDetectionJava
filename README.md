@@ -1,6 +1,15 @@
 # FaceDetectionJava
 
-This repo contains source code to the Java program that runs on any os with JVM.
+This repository contains source code of the Java program that can run on any OS that has a JVM.
+
+## How it works
+This program consists of 4 parts:
+  1. Input - Read the streaming video from the webcam at the rate 33ms/frame.
+  2. Image Processing - Detect frace(s) from the frame and append sticker(s) at the calculated location(s)
+  3. Find feature points - Find good feature points to track from the roi (the detected face)
+  4. Tracking - track the faces and move stickers accordingly based on the average distance moved by the valid featrue points
+  5. Output - Display the processed frame to the interface (FXML)
+
 
 ## Prerequisite
 * A webcam is required to run the program.
@@ -20,11 +29,6 @@ Eclipse > Preferences > Java > Build Path > User Libraries > New > Name it (e.g.
 
 Right click on the project folder > Build Path > Add Libraries > User Library > opencv-XXX > Finish
 
-## How it works
-This program works like this:
-  1. Input - Read one frame of the streaming video from the webcam every 33ms
-  2. Image Processing - Detect frace(s) in the very first frame and append sticker(s) at the calculated location(s)
-  3. Output - Display the processed frame to the interface (FXML)
   
 ## APIs used
 * OpenCV4.1.0
