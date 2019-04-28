@@ -3,7 +3,7 @@
 This repository contains source code of a Computer vision program in Java that can run on any OS that has a JVM.
 
 ## How it works
-This program consists of 4 parts:
+This program consists of 5 parts:
   1. Input - Read the streaming video from the webcam at the rate 33ms/frame.
   2. Image Processing - Detect frace(s) from the frame and append sticker(s) at the calculated location(s)
   3. Find feature points - Find good feature points to track from the roi (the detected face)
@@ -29,6 +29,8 @@ Eclipse > Preferences > Java > Build Path > User Libraries > New > Name it (e.g.
 
 Right click on the project folder > Build Path > Add Libraries > User Library > opencv-XXX > Finish
 
+### Run the program
+Select the project folder and click on Run As > 2 Java Application > FXHelloCV
   
 ## APIs used
 * OpenCV4.1.0
