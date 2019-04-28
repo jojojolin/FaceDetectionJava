@@ -1,6 +1,6 @@
 # FaceDetectionJava
 
-This repository contains source code of the Java program that can run on any OS that has a JVM.
+This repository contains source code of a Computer vision program in Java that can run on any OS that has a JVM.
 
 ## How it works
 This program consists of 4 parts:
